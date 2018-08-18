@@ -1,0 +1,11 @@
+pizero_iot_setup() {
+  # Setup external USB drive
+  #sudo apt-get -y install ntfs-3g
+  #sudo mkdir /mnt/drive/
+  #sudo chown pi:pi /mnt/drive
+  #sudo mount -t ntfs-3g -o uid=pi,gid=pi /dev/sda1 /mnt/drive
+}
+
+unalias ls
+
+# Note, no xterm customizations were needed here
