@@ -3,9 +3,22 @@ pizero_iot_setup() {
   #sudo apt-get -y install ntfs-3g
   #sudo mkdir /mnt/drive/
   #sudo chown pi:pi /mnt/drive
-  #sudo mount -t ntfs-3g -o uid=pi,gid=pi /dev/sda1 /mnt/drive
+  echo sudo mount -t ntfs-3g -o uid=pi,gid=pi /dev/sda1 /mnt/drive
 }
 
-unalias ls
+java_dev() {
+  sudo apt-get update
+  sudo apt-get install -y oracle-java8-jdk maven
+  
+}
+
+cheat_sheet() {
+  alias encrypt='echo gpg --output doc.txt.gpg --symmetric doc.txt'
+  alias bs='echo -e "\\n\\n---- Bash shortcuts ---------\\n^   a  home\\nalt r  back one word    \\n-----------------------------"'
+  alias bc='bs'
+}
+
+#unalias ls
+cheat_sheet
 
 # Note, no xterm customizations were needed here
