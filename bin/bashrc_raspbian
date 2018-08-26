@@ -14,7 +14,7 @@ java_dev() {
 
 cheat_sheet() {
   alias encrypt='echo gpg --output doc.txt.gpg --symmetric doc.txt'
-  alias bs='echo -e "\\n\\n---- Bash shortcuts ---------\\n^   a  home\\nalt r  back one word    \\n-----------------------------"'
+  alias bs='echo -e "\\n\\n---- Bash shortcuts ---------\\n^   a  home   \\n^   e  end\\nalt r  back one word    \\n-----------------------------"'
   alias bc='bs'
 }
 
