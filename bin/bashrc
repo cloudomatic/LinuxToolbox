@@ -9,7 +9,11 @@ pizero_iot_setup() {
 xterm_customizations() {
   if [[ "$USER" == "knoppix" ]]; then 
     # Knoppix 8 has colors in vi turned on
-    alias vi='vi -u NONE'
+    alias vi='vim'
+    if ! grep -qF "syntax off" ~/.vimrc; then
+      echo "syntax off" >> ~/.vimrc
+    fi
+    alias xterm="xterm -ls -xrm 'XTerm*selectToClipboard: true' &"
   elif (more /etc/os-release | grep "^ID=" | grep raspbian); then
     unalias ls
   fi
