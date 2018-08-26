@@ -6,6 +6,16 @@ pizero_iot_setup() {
   echo sudo mount -t ntfs-3g -o uid=pi,gid=pi /dev/sda1 /mnt/drive
 }
 
+xterm_customizations() {
+  if [[ "$USER" == "knoppix" ]]; then 
+    # Knoppix 8 has colors in vi turned on
+    alias vi='vi -u NONE'
+  elif (more /etc/os-release | grep "^ID=" | grep raspbian); then
+    unalias ls
+  fi
+
+}
+
 java_dev() {
   sudo apt-get update
   if (more /etc/os-release | grep "^ID=" | grep raspbian); then 
@@ -21,7 +31,7 @@ cheat_sheet() {
   alias bc='bs'
 }
 
-unalias ls
 cheat_sheet
+xterm_customizations
 
 # Note, no xterm customizations were needed here
