@@ -42,6 +42,11 @@ java_dev() {
   fi
 }
 
+performance_tools() {
+  mem='ps -ef -o vsz,args | sort -nr | head -5'
+  pj='ps -ef | grep java'
+}
+
 cheat_sheet() {
   alias all_cheats='echo -e \\n\\n \
                     Symmetric encryption: echo gpg --output doc.txt.gpg --symmetric doc.txt \
@@ -61,5 +66,6 @@ cheat_sheet() {
 
 cheat_sheet
 xterm_customizations
+performance_tools
 
 # Note, no xterm customizations were needed here, however .bashrc isn't being launched when xterm is launched from the Knoppix LXTerminal
