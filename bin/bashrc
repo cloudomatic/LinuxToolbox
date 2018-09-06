@@ -1,3 +1,6 @@
+#
+# Setup for a pizero acting as an IOT device
+#
 pizero_iot_setup() {
   # Setup external USB drive
   #sudo apt-get -y install ntfs-3g
@@ -15,27 +18,45 @@ xterm_customizations() {
     fi
     alias xterm="xterm -ls -xrm 'XTerm*selectToClipboard: true' &"
   elif (more /etc/os-release | grep "^ID=" | grep raspbian); then
-    unalias ls
+    echo .
+    # Put any Raspbian-specific options here
+    # TO DO: US Keyboard config
   fi
-
+  alias x='xterm'
+  unalias ls 2>/dev/null
 }
 
+#
+# Set up a Java/Maven environment on the local node
+#
 java_dev() {
   sudo apt-get update
   if (more /etc/os-release | grep "^ID=" | grep raspbian); then 
+    # Raspbian
     sudo apt-get install -y oracle-java8-jdk 
+  elif [[ "$USER" == "knoppix" ]]; then
+    # Knoppix, note that you'll get OpenJDK here
+    sudo apt-get install -y maven
+  else
+    echo -e '\n\n Could not install Java, unknown OS!'
   fi
-  sudo apt-get install -y maven
-  
 }
 
 cheat_sheet() {
-  alias encrypt='echo gpg --output doc.txt.gpg --symmetric doc.txt'
-  alias bs='echo -e "\\n\\n---- Bash shortcuts ---------\\n^   a  home   \\n^   e  end\\nalt r  back one word    \\n-----------------------------"'
+  alias all_cheats='echo -e \\n\\n \
+                    Symmetric encryption: echo gpg --output doc.txt.gpg --symmetric doc.txt \
+                    .....'
+  alias ac='all_cheats && bs '
+  alias cs='all_cheats && bs'
+  alias bs='echo -e "\\n\\n          ---- Bash shortcuts ---------\\n \
+             ^   a  home   \\n \
+             ^   e  end\\n \
+             alt r  back one word   \
+             \\n          -----------------------------"'
   alias bc='bs'
 }
 
 cheat_sheet
 xterm_customizations
 
-# Note, no xterm customizations were needed here
+# Note, no xterm customizations were needed here, however .bashrc isn't being launched when xterm is launched from the Knoppix LXTerminal
