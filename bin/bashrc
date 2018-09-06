@@ -53,6 +53,9 @@ cheat_sheet() {
              ^   e  end\\n \
              alt r  back one word   \
              \\n          -----------------------------"'
+  alias vc='echo -e "\\n\\n          ---- Vi ---------\\n \
+            Copy and paste: v to select, y to copy, P to paste (p for paste after) \\n \
+            \\n          -----------------------------"'
   alias bc='bs'
 }
 
