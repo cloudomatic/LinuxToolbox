@@ -42,6 +42,48 @@ java_dev() {
   fi
 }
 
+# 
+# Install the AWS CLI
+#
+install_aws_cli() {
+  if [[ "x$USER" == "xknoppixx" ]]; then
+    if [ `echo $awscli_version_label | grep aws-cli | wc -c` -gt 0 ]; then
+      echo -e "\n\n AWS CLI is installed and is at version `echo $awscli_version_label | cut -f2 -d'\'`\n\n"
+    else
+      # For some reason Knoppix 8.1 is not able to run the pip install with --user, so using the AWSCLI bundle for now....
+      echo -e "\n\n Downloading the AWS CLI bundle"
+      mkdir /tmp/aws-cli-install && cd /tmp/aws-cli-install
+      curl "https://s3.amazonaws.com/aws-cli/awscli-bundle.zip" -o "awscli-bundle.zip"
+      cd /tmp/aws-cli-install && unzip ./awscli-bundle.zip
+      cd /tmp/aws-cli-install/awscli-bundle && ./install
+      rm -rf /tmp/aws-cli-install
+      if [ `echo $awscli_version_label | grep aws-cli | wc -c` -gt 0 ]; then
+        echo -e "\n\n AWS CLI is installed and is at version `echo $awscli_version_label | cut -f2 -d'\'`\n\n"
+      else
+         echo -e "\n\n Error in installing AWS CLI \n\n"
+         exit 1
+      fi
+    fi
+  elif (more /etc/os-release | grep "^ID=" | grep raspbian); then
+    awscli_version_label=`~/.local/bin/aws --version 2>&1`
+    if [ `echo $awscli_version_label | grep aws-cli | wc -c` -gt 0 ]; then 
+      echo -e "\n\n AWS CLI is installed and is at version `echo $awscli_version_label | cut -f2 -d'\'`\n\n"
+    else
+      echo -e "\n\n Installing the AWSCLI to ~/.local/bin \n\n"
+      pip install awscli --user
+      awscli_version_label=`~/.local/bin/aws --version 2>&1`
+      if [ `echo $awscli_version_label | grep aws-cli | wc -c` -gt 0 ]; then 
+         echo -e "\n\n AWS CLI is installed and is at version `echo $awscli_version_label | awk '{print $1}' | cut -f2 -d'\'`\n\n"
+      else
+         echo -e "\n\n Error in installing AWS CLI \n\n"
+         exit 1
+      fi
+    fi
+  else 
+    echo -e "\n\n .bashrc: install_aws_cli():  Error in installing the AWS CLI (unknown OS) \n\n"
+  fi
+}
+
 performance_tools() {
   mem='ps -ef -o vsz,args | sort -nr | head -5'
   pj='ps -ef | grep java'
@@ -64,8 +106,13 @@ cheat_sheet() {
   alias bc='bs'
 }
 
+misc_aliases() {
+  alias aws='~/.local/bin/aws'
+}
+
 cheat_sheet
 xterm_customizations
 performance_tools
+misc_aliases
 
 # Note, no xterm customizations were needed here, however .bashrc isn't being launched when xterm is launched from the Knoppix LXTerminal
