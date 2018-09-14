@@ -80,6 +80,7 @@ install_aws_cli() {
       fi
     fi
   else 
+    # We could use the AWS bundle method for all other OSes, but I'd prefer to update the OS detector routine later
     echo -e "\n\n .bashrc: install_aws_cli():  Error in installing the AWS CLI (unknown OS) \n\n"
   fi
 }
