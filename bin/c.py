@@ -93,35 +93,62 @@ class Cli(Cmd):
     self.log("Scanning local subnet")
     self.log("192.168.1.1\n192.168.1.2")
 
+  def ra_slave_mode(self, ra_service_url):
+      """
+      Tell the local node to go into remote access slave mode using the HTTP host at ra_service_url to serve commands
+
+      In slave mode, the program will receive commands from ra_service_url/command and POST command output to  ra_service_url/response
+      """
+      if ra_service_url == None or len(ra_service_url) < 5 or "http" not in ra_service_url:
+        self.log("RA mode requires a service URL (usage: ra <service-url>)")
+        return
+
+      # Turn off untrusted cert warnings
+      os.environ['PYTHONWARNINGS'] = "ignore:Unverified HTTPS request"
+      urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+      # The interval through which we will poll the remote service, looking for a command
+      command_polling_interval = 300
+
+      # We wish to progressively wait longer than the polling interval, the longer we go without a command,
+      #    so we'll keep track of failures, where "failure" means no one is trying to send us a command
+      count_of_failed_command_access_attempts = 0
+
+      # The polling loop
+      #while True:
+      if True:
+        try:
+          response = requests.get(ra_service_url, verify = False)
+          if response.status_code == 404:
+              # No command was found, but the server is active, so just loop normally
+              self.log("do_ra(): Service url " + ra_service_url + " returned 404, polling_interval = " + command_polling_interval)
+          elif response.status_code < 200 or response.status_code > 399:
+              self.log("do_ra(): FAILURE: Received HTTP code " + str(response.status_code) + " retrieving a command from " + ra_service_url, level = "error")
+          else:
+              command = response.text
+              self.log("Running command: <" + command + ">")
+              self.do_sh(command)
+              #log("do_ra():
+        except:
+          self.log("do_ra(): Retrieving content from " + ra_service_url + " returned an invalid response " + str(sys.exc_info()[0]))
+          # This most likely means that the command server is simply down, so we'll just wait progressively longer until we're waiting forever
+          count_of_failed_command_access_attempts += 1
+          # Increase the polling interval, so that we check progressively less often.
+          if (count_of_failed_command_access_attempts > 5000):
+            command_polling_interval = command_polling_interval + 100
+            count_of_failed_command_access_attempts = 0
+        #time.sleep(command_polling_interval)
+
   def do_ra(self, args):
     self.log("RA mode enabled")
     self.log(str(args))
     self.log(str(args.split(' ')[0]))
     ra_service_url = str(args.split(' ')[0])
-    os.environ['PYTHONWARNINGS'] = "ignore:Unverified HTTPS request"
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-    if args == None or len(args) == 0:
+    if args == None or len(args) < 5 or "http" not in args:
       self.log("RA mode requires a service URL (usage: ra <service-url>)")
     else:
-      command_polling_interval = 300
-      count_of_failed_command_access_attempts = 0
-      if True:
-        response = requests.get(args.split(' ')[0], verify = False)
-        if response.status_code == 404:
-          self.log("do_ra(): Service url " + ra_service_url + " returned 404, polling_interval = " + command_polling_interval)
-          command_polling_interval += 1
-          time.sleep(command_polling_interval)
-          if (command_polling_interval > 5000):
-            command_polling_interval = command_polling_interval + 100
-            count_of_failed_command_access_attempts = 0
-        elif response.status_code < 200 or response.status_code > 399:
-          self.log("do_ra(): FAILURE: Received HTTP code response.status_code retrieving content from " + ra_service_url, level = "error")
-        else:
-          command = response.text
-          self.log("Running command + <" + command + ">")
-          #self.do_sh(command)
-          #log("do_ra():
-        #time.sleep(command_polling_interval)
+      self.ra_slave_mode(ra_service_url)
+
 
 
   def do_show(self, args):
