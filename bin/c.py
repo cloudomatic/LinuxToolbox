@@ -1,7 +1,21 @@
-#!/bin/python
+#!/usr/local/bin/python
 
-import requests,datetime,os,urllib3,shutil,subprocess,time
+import sys,os
 
+if "MacBook" in str(os.environ):
+  sys.path.append("./lib/requests-2.22.0")
+  sys.path.append("./lib/urllib3-1.25.3/src")
+  sys.path.append("./lib/chardet-3.0.4/")
+  sys.path.append("./lib/certifi-2019.6.16/")
+  sys.path.append("./lib/idna-2.8/")
+  sys.path.append("./lib/Flask-1.1.1/src/")
+  sys.path.append("./lib/Jinja2-2.10.1")
+  sys.path.append("./lib/MarkupSafe-1.1.1/src")
+  sys.path.append("./lib/Werkzeug-0.15.5/src/")
+  sys.path.append("./lib/itsdangerous-1.1.0/src")
+  sys.path.append("./lib/Click-7.0/")
+
+import requests,datetime,os,urllib3,shutil,subprocess,time,flask
 from cmd import Cmd
 
 class Cli(Cmd):
@@ -93,11 +107,19 @@ class Cli(Cmd):
     self.log("Scanning local subnet")
     self.log("192.168.1.1\n192.168.1.2")
 
+  def ra_hub_mode(self, base_url, port):
+    """
+    Run as an HTTP remote access broker, listening on <port>.  When a POST is received at base_url/node/command, cache the request body.  
+    When  GET is received for the same URL, serve the command and purge the command from the cache.  Do the same for base_url/node/response.
+    """
+    print ""
+
   def ra_slave_mode(self, ra_service_url):
       """
       Tell the local node to go into remote access slave mode using the HTTP host at ra_service_url to serve commands
 
-      In slave mode, the program will receive commands from ra_service_url/command and POST command output to  ra_service_url/response
+      In slave mode, the program will poll ra_service_url/command looking for a command.  When a command is found (response != 404), run
+      the comand and POST command output to  ra_service_url/response
       """
       if ra_service_url == None or len(ra_service_url) < 5 or "http" not in ra_service_url:
         self.log("RA mode requires a service URL (usage: ra <service-url>)")
