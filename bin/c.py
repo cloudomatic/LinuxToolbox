@@ -24,6 +24,41 @@ import requests,datetime,os,urllib3,shutil,subprocess,time
 from cmd import Cmd
 from flask import Flask
 
+#
+# A remote access broker.  The broker supports slaves and remote access clients.
+#    The broker is invoked via GET /node/command where "command" is a Linux command that is to be run on "node" (where node is a particular command slave node).  The 
+#    slave node runs the command and POSTs the command output to /node/out, where it may be retrieved via GET /node/out by the remote access client that sent the command.
+#
+class RemoteAccessBroker(object):
+
+  #def ra_put_command(self, node_name):
+
+  #def ra_get_response(self):
+  
+  #def ra_get_log(self, node_name):
+
+  def start(self, base_url, port):
+    """
+    Run as an HTTP remote access broker, listening on <port>.  When a POST is received at base_url/node/command, cache the request body.  
+    When  GET is received for the same URL, serve the command and purge the command from the cache.  Do the same for base_url/node/response.
+    """
+
+    self.log("DEBUG: start(): >")
+
+    try:
+      hub_web_service = Flask(__name__)
+
+      @hub_web_service.route('/')
+      def service_request():
+        return "<html>Hello world<html>"
+
+      hub_web_service.run()
+
+    except:
+      self.log("start(): ERROR " + str(sys.exc_info()[0]))
+    
+    self.log("DEBUG: start(): <")
+
 class Cli(Cmd):
 
   # These headers come from Cmd, and show in the help text
@@ -113,7 +148,7 @@ class Cli(Cmd):
     response = requests.get(url, auth = (auth_user, auth_password), verify = False, stream = True)
     if response.status_code < 200 or response.status_code > 399:
       self.log("retrieve_network_image(): FAILURE: Received HTTP code response.status_code downloading image from " + url, level = "error")
-      raise Exception(
+      raise oxception(
           "Exception in Cli.retrieve_network_image(): Request to " + request  + " failed (HTTP response code " + str(response.status_code) + ")"
       )
     with open(path, 'wb') as imagefile:
@@ -160,36 +195,6 @@ class Cli(Cmd):
       self.log("Invalid syntax for the 'set' command.  Try: set <name> <value>")
     else:
       print str(os.environ)
-  
-  #def ra_put_command(self, node_name):
-
-  #def ra_get_response(self):
-  
-  #def ra_get_log(self, node_name):
-
-  def ra_hub_mode(self, base_url, port):
-    """
-    Run as an HTTP remote access broker, listening on <port>.  When a POST is received at base_url/node/command, cache the request body.  
-    When  GET is received for the same URL, serve the command and purge the command from the cache.  Do the same for base_url/node/response.
-    """
-
-    self.log("DEBUG: ra_hub_mode(): >")
-
-
-    try:
-      hub_web_service = Flask(__name__)
-
-      @hub_web_service.route('/')
-      def service_request():
-        return "<html>Hello world<html>"
-
-      hub_web_service.run()
-
-    except:
-      self.log("ra_hub_mode(): ERROR " + str(sys.exc_info()[0]))
-
-    
-    self.log("DEBUG: ra_hub_mode(): <")
 
   def ra_slave_mode(self, ra_service_url):
       """
@@ -254,7 +259,8 @@ class Cli(Cmd):
             self.ra_slave_mode(ra_service_url)
             return
         elif "hub" in mode or "broker" in mode:
-          self.ra_hub_mode(str(args.split(' ')[1]), str(args.split(' ')[2]) )
+          hub = RemoteAccessBroker()
+          hub.start(str(args.split(' ')[1]), str(args.split(' ')[2]) )
           return
         #elif "cmd" in mode:
         #  self.ra_remote_command(args)
