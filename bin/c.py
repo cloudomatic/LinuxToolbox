@@ -38,7 +38,7 @@ def get_local_node_name():
     if os.environ.get("HOSTNAME") is not None:
       return os.environ.get("HOSTNAME")
     else:
-      return "mystery_node"
+      return "UNKNOWN_NODE"
 
 
 def run_shell_command(command):
@@ -77,7 +77,7 @@ class Logger(object):
       log_line_prefix = datetime.datetime.now().strftime('%Y%m%d.%H:%M:%S') + ": " + log_line_prefix
     message_lines = message.split('\n')
     for message_line in message_lines:
-      print log_line_prefix + message_line
+      print(log_line_prefix + message_line)
 
 #
 # A remote access slave.  The slave is designed to work behind a strict proxy/firewall layer, 
@@ -118,6 +118,7 @@ class RemoteAccessSlave(object):
     """
     self.logger.log("RemoteAccessSlave.handle_shell_command(): >: Running command: <" + command + ">", level = "DEBUG")
 
+    command_output = ""
     if command is not None and len(command) > 0:
       command_output = str(subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT).stdout.read())
     else:
@@ -133,11 +134,11 @@ class RemoteAccessSlave(object):
       self.logger.log("RemoteAccessSlave.handle_shell_command(): Sending the response to the broker at:" + broker_response_url + " returned an exception " + str(sys.exc_info()[0]), level = "error")
     if response_to_broker_http_request_object.text is not None and response_to_broker_http_request_object.text != "OK":
       # Something went wrong
-      self.logger.log("RemoteAccessSlave.handle_shell_command(): Received " + response_to_broker_http_request_object.text +  " from the broker when sending the command output (expected 'OK')")
+      self.logger.log("RemoteAccessSlave.handle_shell_command(): Received " + response_to_broker_http_request_object.text +  " from the broker when sending the command output (expected 'OK')" "ERROR")
 
   def sendfile(self, filename):
     """
-    If a command of type "sendfile <filename>" is received, we PUT the specified file to the broker at <broker_service_url/file/<filename>
+    If a command of type "_sendfile <filename>" is received, we PUT the specified file to the broker at <broker_service_url/file/<filename>
     """
     self.logger.log("RemoteAccessSlave.sendfile(): >: filename: <" + filename + ">")
     file_put_url = self.broker_service_url + "/file/" + str(os.path.basename(os.path.normpath(filename)))
@@ -164,17 +165,17 @@ class RemoteAccessSlave(object):
 
   def process_command(self, command):
     """
-    Process a command sent by a remote client to the hub.  If we don't have a custom function (like sendfile), we treat
+    Process a command sent by a remote client to the hub.  If we don't have a custom function (like _sendfile), we treat
     the command as a normal shell command
     """
-    if command.startswith("sendfile "):
+    if command.startswith("_sendfile "):
       self.sendfile(command.split("sendfile ",1)[1].strip())
-    elif command.startswith("runfile "):
+    elif command.startswith("_runfile "):
       self.pullfile(command.split("pullfile ",1)[1].strip(), "/var/tmp/runme")
       self.handle_shell_command("chmod u+rx /var/tmp/runme")
       self.handle_shell_command("/var/tmp/runme")
       self.handle_shell_command("rm /var/tmp/runme")
-    elif command.startswith("pullfile "):
+    elif command.startswith("_pullfile "):
       self.pullfile(command.split("pullfile ",1)[1].strip(), command.split("pullfile ",1)[2].strip())
     else:
       self.handle_shell_command(command)
@@ -219,17 +220,18 @@ class RemoteAccessSlave(object):
           if response_to_request_for_a_command is not None:
             if response_to_request_for_a_command.status_code == 404:
               # No command was found, but the broker is active, so just loop normally
-              self.logger.log("ra_slave_mode(): " + self.get_local_node_name() + ": Service url " + command_url + " returned 404, polling_interval = " + str(command_polling_interval), level = "DEBUG")
+              self.logger.log("ra_slave_mode(): " + self.get_local_node_name() + ": Broker url " + command_url + " returned 404, polling_interval = " + str(command_polling_interval), level = "DEBUG")
             elif response_to_request_for_a_command.status_code < 200 or response_to_request_for_a_command.status_code > 399:
               self.logger.log("ra_slave_mode(): FAILURE: Received HTTP code " + str(response_to_request_for_a_command.status_code) + " retrieving  " + command_url, level = "error")
           # An exception (response_to_request_for_a_command == None) likely means the broker (command server) is simply down, or the network is not available
           # Whatever the reasons for the failure to get a command, we want to wait progressively longer until we're just checking daily
           count_of_failed_command_access_attempts += 1
-          if (count_of_failed_command_access_attempts > 300):
+          if (count_of_failed_command_access_attempts > 120):
             # TO DO: Put this back!
-            #command_polling_interval = min(command_polling_interval + 10, 86400)
+            #command_polling_interval = min(command_polling_interval + 10, 43200)
+            command_polling_interval = min(command_polling_interval + 10, 20)
             count_of_failed_command_access_attempts = 0
-          command_polling_interval+= 1
+          #command_polling_interval+= 1
         self.logger.log("ra_slave_mode(): zzz (" + str(command_polling_interval) + " seconds)", level = "DEBUG")
         time.sleep(command_polling_interval)
 
@@ -320,6 +322,8 @@ class RemoteAccessBroker(object):
       self.node_data_lock.release()
 
   def test(self, broker_service_url = None):
+   # if broker_service_url is not None:
+      # Run the integration tests
     self.logger.log("Testing GET /data (expecting {}): " + requests.get(broker_service_url + "/data", headers = { "secret" :  self.secret }).text)
     self.logger.log( str("Testing GET /log (expecting 501): \n\n         " + 
               requests.get(broker_service_url + "/log", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
@@ -605,10 +609,10 @@ class Cli(Cmd):
 
   def inspect_remote_node(self, args):
     # TO DO: Expect args to be an IP address or hostname
-    print ""
+    print("")
 
   def do_devices(self, args):
-    print "\nDevices:\n"
+    print("\nDevices:\n")
     if 'ROUTERPASS' in os.environ:
       router_admin_password = os.environ['ROUTERPASS']
     else:
@@ -710,14 +714,21 @@ class Cli(Cmd):
         self.logger.log("")
       self.logger.log("Invalid syntax for the 'set' command.  Try: set <name> <value>")
     else:
-      print str(os.environ)
+      print(str(os.environ))
+
 
   def do_ra(self, args):
+    '\n Remote access mode. \n'
     self.logger.log("do_ra(): >: args: <" + str(args) + ">", level = "DEBUG")
     try:
       if args is not None and len(args) > 3:
         if "--debug" in args or "-d" in args:
           self.do_debug("on")
+        if "--broker" in args:
+          self.broker_service_url = args.split("--broker",1)[1].strip().split(' ')[0]
+          self.logger.log("do_ra(): Setting broker service url to: " + self.broker_service_url)
+          args = " ".join(args.split("--broker",1)[1].strip().split(' ')[1:])
+          self.logger.log("do_ra(): args=" + args)
         if args.startswith("start slave"):
           ra_service_url = str(args.split(' ')[2])
           if args == None or len(args) < 5 or "http" not in args:
@@ -765,14 +776,15 @@ class Cli(Cmd):
           if self.broker_service_url is None:
             self.broker_service_url = "http://localhost:8000"
             #self.logger.log("Remote access broker not set.  Try: set broker <broker-service-url>")
-          print "\nHub: " + self.broker_service_url + "\n"
-          print requests.get(self.broker_service_url + "/data", headers = { "secret" :  RemoteAccessBroker.get_instance().secret }).text + "\n"
+          print("\nNodes active on broker: " + self.broker_service_url + "\n")
+          print( requests.get(self.broker_service_url + "/data", headers = { "secret" :  RemoteAccessBroker.get_instance().secret }).text + "\n")
           return
         elif args.startswith("getfile "):
           # Instruct the node to send the file
           node_name = args.split(' ')[1]
           filename = args.split(' ')[2]
-          self.ra_remote_command(node_name, "sendfile " + filename)
+          self.ra_remote_command(node_name, "_sendfile " + filename)
+          time.sleep(3)
           # Now retrieve the file
           response = requests.get(self.broker_service_url + "/file/" + filename, stream = True)
           if response.status_code == 200:
@@ -783,16 +795,24 @@ class Cli(Cmd):
             run_shell_command("ls -l " + filename) 
             self.logger.log("")
           else:
-            self.logger.log("File missing from broker after command send")
+            self.logger.log("File missing from broker after command <_sendfile> sent")
           return
-        elif args.startswith("sh "):
+        elif args.startswith("sh"):
           if self.broker_service_url is None:
             self.logger.log("Remote access broker not set.  Try: set broker <broker-service-url>")
             return
           else:
-            node_name = str(args.split(' ')[1])
-            remote_command = args.split(node_name,1)[1].strip()
-            self.ra_remote_command(node_name, remote_command)
+            try:
+              node_name = str(args.split(' ')[1])
+              remote_command = args.split(node_name,1)[1].strip()
+              if len(remote_command) == 0:
+                raise Exception("Command required")
+              else:
+                self.ra_remote_command(node_name, remote_command)
+            except:
+              self.logger.log("Try: ra sh <node-name> <Linux shell command>")
+              self.logger.log("     ra sh <node-name> _sendfile <filename>")
+              self.logger.log("     ra sh <node-name> _pullfile <filename> <node-local filename> [chmod permissions]")
             return
     except:
       self.logger.log("do_ra(): ERROR: " + str(sys.exc_info()[0]), level = "ERROR")
@@ -803,6 +823,7 @@ class Cli(Cmd):
     self.logger.log("     ra set broker <broker-url>")
     self.logger.log("     ra sh <node> <command>")
     self.logger.log("     ra getfile <node> <filename-on-node>")
+    self.logger.log("     ra help")
     self.logger.log("do_ra(): <", level = "DEBUG")
 
   def ra_remote_command(self, node_name, command):
@@ -837,15 +858,15 @@ class Cli(Cmd):
       if "devices" in args.split(' '):
         self.do_devices(args)
     else:
-      print "show what?"
+      print("show what?")
 
   def do_timestamps(self, args):
     if args == None or len(args) == 0:
-      print "Timestamps on"
       self.logger.timestamps = "on"
+      self.logger.log("Timestamps on")
     elif "off" in args.split(' '):
-      print "Timestamps off"
       self.logger.timestamps = "off"
+      self.logger.log("Timestamps off")
     elif "on" in args.split(' '):
       self.do_timestamps(None)
 
@@ -860,15 +881,22 @@ class Cli(Cmd):
       self.do_debug(None)
 
   def run_command(self, command_name, args):
+    if command_name.startswith("-help") or command_name.startswith("--help"):
+      command_name = "help"
     command = getattr(self, "do_" + command_name, None)
     if callable(command):
       if len(args) > 0:
         command(str(args))
       else:
         command(None)
+      return
+    print("\n   Invalid arguments: " + command_name +  "\n")
+
 
 if __name__ == '__main__':
   
+  # https://docs.python.org/3/library/cmd.html
+
   # Turn off untrusted cert warnings
   os.environ['PYTHONWARNINGS'] = "ignore:Unverified HTTPS request"
   urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
