@@ -27,6 +27,7 @@ import requests,datetime,os,urllib3,shutil,subprocess,time,traceback
 from cmd import Cmd
 from flask import Flask,request,abort,send_from_directory
 from threading import Lock
+import threading
 
 #
 # Global utility functions
@@ -60,6 +61,9 @@ class Logger(object):
   log_level = "error"
 
   _logger = None
+  
+  log_lock = Lock()
+
 
   @staticmethod
   def get_instance():
@@ -68,16 +72,20 @@ class Logger(object):
     return Logger._logger
 
   def log(self, message, level = None):
-    log_line_prefix = ""
-    if level is not None and level.lower() in self.log_level.lower():
-      log_line_prefix += level.upper() + ": "
-    elif level is not None and level.lower() not in self.log_level.lower(): 
-      return
-    if self.timestamps == "on":
-      log_line_prefix = datetime.datetime.now().strftime('%Y%m%d.%H:%M:%S') + ": " + log_line_prefix
-    message_lines = message.split('\n')
-    for message_line in message_lines:
-      print(log_line_prefix + message_line)
+    self.log_lock.acquire()
+    try:
+      log_line_prefix = ""
+      if level is not None and level.lower() in self.log_level.lower():
+        log_line_prefix += level.upper() + ": "
+      elif level is not None and level.lower() not in self.log_level.lower(): 
+        return
+      if self.timestamps == "on":
+        log_line_prefix = datetime.datetime.now().strftime('%Y%m%d.%H:%M:%S') + ": " + log_line_prefix
+      message_lines = message.split('\n')
+      for message_line in message_lines:
+        print(log_line_prefix + message_line)
+    finally:
+      self.log_lock.release()
 
 #
 # A remote access slave.  The slave is designed to work behind a strict proxy/firewall layer, 
@@ -95,7 +103,7 @@ class RemoteAccessSlave(object):
   broker_service_url = None
  
   # The shared secret between broker and slave node 
-  secret = "QtKqmvoNw7zolf2VPH43eSq3qFxnL4xA31wPoB/iwIDAQABAoIBA1QD2E3ApQQh7P9YHY"
+  secret = "QtKqmvoNw7zolf2VPH43eSq3qFxnL4xA31wPoBiwIDAQABAoIBA1QD2E3ApQQh7P9YHY"
 
   def test(self):
     #self.start_slave("http://localhost:8000")
@@ -149,7 +157,7 @@ class RemoteAccessSlave(object):
     requests.put(self.broker_service_url + "/response/" + self.get_local_node_name(), headers = { "secret" :  self.secret }, data="sendfile() completed")
     return put_request_response.text
 
-  def pullfile(self, broker_filename, local_filename):
+  def pullfile(self, broker_filename, local_filename, permissions):
     """
     Pull a file from the broker and run it
     """
@@ -235,7 +243,6 @@ class RemoteAccessSlave(object):
         self.logger.log("ra_slave_mode(): zzz (" + str(command_polling_interval) + " seconds)", level = "DEBUG")
         time.sleep(command_polling_interval)
 
-
 #
 # A remote access broker.  The broker runs as a process to suppport transactions between 
 # slaves and remote access clients.
@@ -258,7 +265,7 @@ class RemoteAccessBroker(object):
   
   generic_cache_lock = Lock()
 
-  secret = "QtKqmvoNw7zolf2VPH43eSq3qFxnL4xA31wPoB/iwIDAQABAoIBA1QD2E3ApQQh7P9YHY"
+  secret = "QtKqmvoNw7zolf2VPH43eSq3qFxnL4xA31wPoBiwIDAQABAoIBA1QD2E3ApQQh7P9YHY"
 
   # A place to store files being sent between remote access clients and slave nodes
   file_store = "/var/tmp"
@@ -322,96 +329,146 @@ class RemoteAccessBroker(object):
       self.node_data_lock.release()
 
   def test(self, broker_service_url = None):
-   # if broker_service_url is not None:
-      # Run the integration tests
-    self.logger.log("Testing GET /data (expecting {}): " + requests.get(broker_service_url + "/data", headers = { "secret" :  self.secret }).text)
-    self.logger.log( str("Testing GET /log (expecting 501): \n\n         " + 
-              requests.get(broker_service_url + "/log", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-    ))
+    # Run unit tests
+    code, message = self.get_command("node01")
+    if code != 404:
+      raise Exception("ERROR: RemoteAccessBroker.test(): self.get_command() on non-existent command returned " + str(code) + " (expected 404)")
+    code, message = self.put_command("node01", "c1")
+    if code != 200:
+      raise Exception("ERROR: RemoteAccessBroker.test(): self.put_command() on valid command returned " + str(code) + " (expected 200)")
+    code, message = self.get_command("node01")
+    if code != 200:
+      raise Exception("ERROR: RemoteAccessBroker.test(): self.get_command() on valid command returned " + str(code) + " (expected 200)")
+    if message != "c1":
+      raise Exception("ERROR: RemoteAccessBroker.test(): self.get_command() on valid command returned invalid command: " + str(message) + " (expected c1)")
+    code, message = self.get_command("node01")
+    if code != 404:
+      raise Exception("ERROR: RemoteAccessBroker.test(): self.get_command() on already consumed command returned " + str(code) + " (expected 404)")
+    code, message = self.get_response("node01")
+    if code != 404:
+      raise Exception("ERROR: RemoteAccessBroker.test(): self.get_response() on non-existent response returned " + str(code) + " (expected 404)")
+    code, message = self.put_response("node01", "r1")
+    if code != 200:
+      raise Exception("ERROR: RemoteAccessBroker.test(): self.put_response() on valid response returned " + str(code) + " (expected 200)")
+    code, message = self.get_response("node01")
+    if code != 200:
+      raise Exception("ERROR: RemoteAccessBroker.test(): self.get_response on valid response returned " + str(code) + " (expected 200)")
+    if message != "r1":
+      raise Exception("ERROR: RemoteAccessBroker.test(): self.get_response() invalid response returned: " + str(message)  + " (expected r1)")
+    code, message = self.get_response("node01")
+    if code != 404:
+      raise Exception("ERROR: RemoteAccessBroker.test(): self.get_response() on already consumed response returned " + str(code) + " (expected 404)")
+    code, message = self.get_response("node02")
+    if code != 404:
+      raise Exception("ERROR: RemoteAccessBroker.test(): self.get_response() on non-existed node name returned " + str(code) + " (expected 404)")
 
-    self.logger.log(str("Testing GET /cache/somekey (expecting 404): \n\n         " +
-              requests.get(broker_service_url + "/cache/somekey", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-    ))
+    if broker_service_url is not None:
+            # Run integration tests
+	    self.logger.log("Testing GET /data (expecting {}): " + requests.get(broker_service_url + "/data", headers = { "secret" :  self.secret }).text)
+	    self.logger.log( str("Testing GET /log (expecting 501): \n\n         " + 
+		      requests.get(broker_service_url + "/log", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
+	    ))
 
-    self.logger.log(str("Testing PUT /cache/somekey (expecting OK): \n\n         " +
-              requests.put(broker_service_url + "/cache/somekey", data = "100000000000000000001", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-    ))
+	    self.logger.log(str("Testing GET /cache/somekey (expecting 404): \n\n         " +
+		      requests.get(broker_service_url + "/cache/somekey", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
+	    ))
 
-    self.logger.log(str("Testing GET /cache/somekey (expecting 100000000000000000001): \n\n         " +
-              requests.get(broker_service_url + "/cache/somekey", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-    ))
+	    self.logger.log(str("Testing PUT /cache/somekey (expecting OK): \n\n         " +
+		      requests.put(broker_service_url + "/cache/somekey", data = "100000000000000000001", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
+	    ))
 
-    self.logger.log(str("Testing DELETE /cache/somekey (expecting OK): \n\n         " +
-              requests.delete(broker_service_url + "/cache/somekey", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-    ))
+	    self.logger.log(str("Testing GET /cache/somekey (expecting 100000000000000000001): \n\n         " +
+		      requests.get(broker_service_url + "/cache/somekey", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
+	    ))
 
-    self.logger.log(str("Testing GET /cache/somekey (expecting 404): \n\n         " +
-              requests.get(broker_service_url + "/cache/somekey", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-    ))
- 
-    self.logger.log(str("Testing GET /file/somefile.txt (expecting 404): \n\n         " +
-              requests.get(broker_service_url + "/file/somefile.txt", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-    ))
+	    self.logger.log(str("Testing DELETE /cache/somekey (expecting OK): \n\n         " +
+		      requests.delete(broker_service_url + "/cache/somekey", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
+	    ))
 
-    self.logger.log(str("Testing PUT /file/somefile.png (expecting OK): \n\n         " +
-              requests.put(broker_service_url + "/file/somefile.png", headers = { "secret" :  self.secret }, files = { "file" : open("logo.png","rb") }).text.replace("\n", "\n         ")
-    ))
+	    self.logger.log(str("Testing GET /cache/somekey (expecting 404): \n\n         " +
+		      requests.get(broker_service_url + "/cache/somekey", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
+	    ))
+	 
+	    self.logger.log(str("Testing GET /file/somefile.txt (expecting 404): \n\n         " +
+		      requests.get(broker_service_url + "/file/somefile.txt", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
+	    ))
 
-    #self.logger.log(str("Testing PUT /file/somefile.txt (expecting OK): \n\n         " +
-    #          requests.put(broker_service_url + "/file/somefile.txt", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-    #))
+            # Create a test file to test put/get/delete on files
+            run_shell_command("echo xxxxxxxxxxxxxxxxxxx > delete-this-test-file.out")
 
-    #self.logger.log(str("Testing GET /file/somefile.txt (expecting 404): \n\n         " +
-    #          requests.get(broker_service_url + "/file/somefile.txt", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-    #))
+	    self.logger.log(str("Testing PUT /file/somefile.out (expecting OK): \n\n         " +
+		      requests.put(broker_service_url + "/file/somefile.out", headers = { "secret" :  self.secret }, files = { "file" : open("delete-this-test-file.out","rb") }).text.replace("\n", "\n         ")
+	    ))
 
-    #self.logger.log(str("Testing DELETE /file/somefile.txt (expecting OK): \n\n         " +
-    #          requests.get(broker_service_url + "/file/somefile.txt", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-    #))
-
-
-    self.logger.log(str("Testing GET /command/testnode01 (expecting 404): \n\n         " +
-              requests.get(broker_service_url + "/command/testnode01", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-    ))
-
-    self.logger.log(str("Testing GET /data (expecting an access timestamp under testnode01): \n\n         " +
-              requests.get(broker_service_url + "/data", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-    ))
+	    self.logger.log(str("Testing GET /file/somefile.txt (expecting 404): \n\n         " +
+	              requests.get(broker_service_url + "/file/somefile.txt", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
+	    ))
 
 
-    self.logger.log(str("Testing GET /response/testnode02 (expecting 404): \n\n         " +
-              requests.get(broker_service_url + "/response/testnode02", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-    ))
+            #self.logger.log(str("Testing GET /file/somefile.out (expecting OK): \n\n         " +
+            #          file_download_response = requests.get(broker_service_url + "/file/somefile.out", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
+            #))
+            #with open('delete-this-test-file.copy.out') as output_file:
+            #  for block in file_download_response.iter_content(1024):
+            #    output_file.write(block)
+            #self.logger.log(str("File contents (expecting xxxxxxxxxxxxxxxxxxx): \n\n         "))
+            #run_shell_command("cat delete-this-test-file.copy.out")
+            #run_shell_command("cksum delete-this-test-file.out delete-this-test-file.copy.out")
+            #run_shell_command("rm delete-this-test-file.copy.out")
+            #run_shell_command("rm delete-this-test-file.out")
+
+      self.logger.log(str("Testing DELETE /file/somefile.txt (expecting 404): \n\n         " +
+                      requests.delete(broker_service_url + "/file/somefile.txt", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
+      ))
 
 
-    self.logger.log(str("Testing PUT /command/testnode03 (expecting OK): \n\n         " +
-              requests.put(broker_service_url + "/command/testnode03", data = "foo", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-    ))
+	    self.logger.log(str("Testing DELETE /file/somefile.out (expecting OK): \n\n         " +
+	              requests.delete(broker_service_url + "/file/somefile.out", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
+	    ))
 
+      self.logger.log(str("Testing GET /file/somefile.out (expecting 404): \n\n         " +
+                      requests.get(broker_service_url + "/file/somefile.out", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
+      ))
 
-    self.logger.log(str("Testing GET /command/testnode03 (expecting foo): \n\n         " +
-              requests.get(broker_service_url + "/command/testnode03", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-    ))
+	    self.logger.log(str("Testing GET /command/testnode01 (expecting 404): \n\n         " +
+		      requests.get(broker_service_url + "/command/testnode01", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
+	    ))
 
-    self.logger.log(str("Testing GET /response/testnode03 (Response is pending, so expecting 404): \n\n         " +
-              requests.get(broker_service_url + "/response/testnode03", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-    ))
+	    self.logger.log(str("Testing GET /data (expecting an access timestamp under testnode01): \n\n         " +
+		      requests.get(broker_service_url + "/data", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
+	    ))
 
-    self.logger.log(str("Testing PUT /response/testnode03 (expecting OK): \n\n         " +
-              requests.put(broker_service_url + "/response/testnode03", data = "bar", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-    ))
+	    self.logger.log(str("Testing GET /response/testnode02 (expecting 404): \n\n         " +
+		      requests.get(broker_service_url + "/response/testnode02", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
+	    ))
 
-    self.logger.log(str("Testing GET /response/testnode03 (expecting bar): \n\n         " +
-              requests.get(broker_service_url + "/response/testnode03", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-    ))
+	    self.logger.log(str("Testing PUT /command/testnode03 (expecting OK): \n\n         " +
+		      requests.put(broker_service_url + "/command/testnode03", data = "foo", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
+	    ))
 
-    self.logger.log(str("Testing GET /response/testnode03 (expecting 404): \n\n         " +
-              requests.get(broker_service_url + "/response/testnode03", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-    ))
+	    self.logger.log(str("Testing GET /command/testnode03 (expecting foo): \n\n         " +
+		      requests.get(broker_service_url + "/command/testnode03", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
+	    ))
 
-    self.logger.log(str("Testing GET /data (expecting an access timestamp under testnode01, testnode03): \n\n         " +
-              requests.get(broker_service_url + "/data", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-    ))
+	    self.logger.log(str("Testing GET /response/testnode03 (Response is pending, so expecting 404): \n\n         " +
+		      requests.get(broker_service_url + "/response/testnode03", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
+	    ))
+
+	    self.logger.log(str("Testing PUT /response/testnode03 (expecting OK): \n\n         " +
+		      requests.put(broker_service_url + "/response/testnode03", data = "bar", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
+	    ))
+
+	    self.logger.log(str("Testing GET /response/testnode03 (expecting bar): \n\n         " +
+		      requests.get(broker_service_url + "/response/testnode03", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
+	    ))
+
+	    self.logger.log(str("Testing GET /response/testnode03 (expecting 404): \n\n         " +
+		      requests.get(broker_service_url + "/response/testnode03", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
+	    ))
+
+	    self.logger.log(str("Testing GET /data (expecting an access timestamp under testnode01, testnode03): \n\n         " +
+		      requests.get(broker_service_url + "/data", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
+	    ))
   
   def get_node_data(self):
     self.node_data_lock.acquire()
@@ -566,7 +623,6 @@ class RemoteAccessBroker(object):
         else:
           abort(status_code)
 
-
       broker_web_service.run(host = listener_address, port = int(port))
     except:
       print("RemoteAccessBroker.start_broker(): ERROR " + str(sys.exc_info()[0]))
@@ -578,6 +634,7 @@ class Cli(Cmd):
   undoc_header = ""
 
   logger = Logger.get_instance()
+
 
   broker_service_url = None
   nodename = None
@@ -693,6 +750,7 @@ class Cli(Cmd):
     #except Exception as exception:
     #  self.logger.log(str(exception.args))
     self.do_sh("ls -l")
+    RemoteAccessBroker.get_instance().test()
 
   def do_scan(self, args):
     self.logger.log("Scanning local subnet")
