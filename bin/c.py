@@ -233,7 +233,7 @@ class RemoteAccessSlave(object):
               self.logger.log("ra_slave_mode(): FAILURE: Received HTTP code " + str(response_to_request_for_a_command.status_code) + " retrieving  " + command_url, level = "error")
           # An exception (response_to_request_for_a_command == None) likely means the broker (command server) is simply down, or the network is not available
           # Whatever the reasons for the failure to get a command, we want to wait progressively longer until we're just checking daily
-          count_of_failed_command_access_attempts += 1
+          count_of_failed_command_access_attempts += o
           if (count_of_failed_command_access_attempts > 120):
             # TO DO: Put this back!
             #command_polling_interval = min(command_polling_interval + 10, 43200)
@@ -328,8 +328,40 @@ class RemoteAccessBroker(object):
     finally:
       self.node_data_lock.release()
 
+  def broker_client_request(self, broker_service_url, request, request_method = "GET", headers = None, data = None):
+    if not request.startswith("/"):
+      error_message = "Invalid call to RemoteAccessBroker.broker_client_request(): Request <" + request + "> does not have a preceding forward slash"
+      self.logger.log(error_message, "ERROR")
+      raise Exception("ERROR: " + error_message)
+    if headers is None:
+      headers = {}
+    headers['secret'] = self.secret 
+    if request_method == "GET":
+      response = requests.get(broker_service_url + request, headers = headers)
+      return response
+    elif request_method == "DELETE":
+      response = requests.delete(broker_service_url + request, headers = headers)
+      return response
+    elif request_method == "PUT" or request_method == "POST":
+      if data == None:
+        error_message = "RemoteAccessBroker.broker_client_request(): " + request_method + " <" + request + "> requires a data argument"
+        self.logger.log(error_message, "ERROR")
+        raise Exception("ERROR: " + error_message)
+      if request_method == "PUT":
+        response = requests.put(broker_service_url + request, headers = headers, data = data)
+      elif request_method == "POST":
+        response = requests.post(broker_service_url + request, headers = headers, data = data)
+      else:
+        error_message = "RemoteAccessBroker.broker_client_request(): Invalid request_method argument <" + request_method + "> (GET, PUT, POST, DELETE implmented)"
+        self.logger.log(error_message, "ERROR")
+        raise Exception("ERROR: " + error_message)
+      return response
+
   def test(self, broker_service_url = None):
-    # Run unit tests
+    """
+    Run a test of a RemoteAccessBroker currently running at <broker_service_url>, or only class unit tests if no broker URL is provided.
+    """
+    self.logger.log("RemoteAccessBroker.test(): Running unit tests")
     code, message = self.get_command("node01")
     if code != 404:
       raise Exception("ERROR: RemoteAccessBroker.test(): self.get_command() on non-existent command returned " + str(code) + " (expected 404)")
@@ -363,81 +395,111 @@ class RemoteAccessBroker(object):
       raise Exception("ERROR: RemoteAccessBroker.test(): self.get_response() on non-existed node name returned " + str(code) + " (expected 404)")
 
     if broker_service_url is not None:
+            self.logger.log("RemoteAccessBroker.test(): Running broker integration tests")
+
             # Run integration tests
-	    self.logger.log("Testing GET /data (expecting {}): " + requests.get(broker_service_url + "/data", headers = { "secret" :  self.secret }).text)
-	    self.logger.log( str("Testing GET /log (expecting 501): \n\n         " + 
-		      requests.get(broker_service_url + "/log", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-	    ))
 
-	    self.logger.log(str("Testing GET /cache/somekey (expecting 404): \n\n         " +
-		      requests.get(broker_service_url + "/cache/somekey", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-	    ))
+            # Test for an invalid shared secret
+            response_code = requests.get(broker_service_url + "/data", headers = { "secret" :  "foobar" }).status_code
+            if response_code != 401:
+              raise Exception("ERROR: RemoteAccessBroker.test(): GET /data (with invalid authentication) returned a status code of " + str(response_code) + " (Expecting 401)")
 
-	    self.logger.log(str("Testing PUT /cache/somekey (expecting OK): \n\n         " +
-		      requests.put(broker_service_url + "/cache/somekey", data = "100000000000000000001", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-	    ))
+            # Test for the unimplemented log function
+            response_code = self.broker_client_request(broker_service_url, "/log").status_code
+            if response_code != 501:
+              raise Exception("ERROR: RemoteAccessBroker.test(): GET /log returned an error code of " + str(response_code) + " (Expecting 501)")
 
-	    self.logger.log(str("Testing GET /cache/somekey (expecting 100000000000000000001): \n\n         " +
-		      requests.get(broker_service_url + "/cache/somekey", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-	    ))
+            # Test for no command/response data
+            response = self.broker_client_request(broker_service_url, "/data")
+            if response.status_code != 200 or response.text != "{}":
+              raise Exception("ERROR: RemoteAccessBroker.test(): GET /data (with an empty data cache) returned <" + response.text + "> with a status code of " + str(response.status_code) + " (expecting 200 {})")
+          
+            # Test for an invalid cache key
+            response = self.broker_client_request(broker_service_url, "/cache/somekey")
+            if response.status_code != 404:
+              raise Exception("ERROR: RemoteAccessBroker.test(): GET /cache/somekey (with a non-existent key) returned <" + response.text + "> with a status code of " + str(response.status_code) + " (expecting 404)")
 
-	    self.logger.log(str("Testing DELETE /cache/somekey (expecting OK): \n\n         " +
-		      requests.delete(broker_service_url + "/cache/somekey", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-	    ))
+            # Put something in the cache
+            response = self.broker_client_request(broker_service_url, "/cache/somekey", request_method = "PUT", data =  "100000000000000000001")
+            if response.status_code != 200:
+              raise Exception("ERROR: RemoteAccessBroker.test(): PUT  /cache/somekey (with a valid key) returned <" + response.text + "> with a status code of " + str(response.status_code) + " (expecting 200)")
 
-	    self.logger.log(str("Testing GET /cache/somekey (expecting 404): \n\n         " +
-		      requests.get(broker_service_url + "/cache/somekey", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-	    ))
-	 
-	    self.logger.log(str("Testing GET /file/somefile.txt (expecting 404): \n\n         " +
-		      requests.get(broker_service_url + "/file/somefile.txt", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-	    ))
+            # Check it's value
+            response = self.broker_client_request(broker_service_url, "/cache/somekey")
+            if response.status_code != 200 or  response.text != "100000000000000000001":
+              raise Exception("ERROR: RemoteAccessBroker.test(): GET /cache/somekey (with a valid key) returned <" + response.text + "> with a status code of " + str(response.status_code) + " (expecting 200)")
 
-            # Create a test file to test put/get/delete on files
+            # Delete it
+            response = self.broker_client_request(broker_service_url, "/cache/somekey", request_method = "DELETE")
+            if response.status_code != 200:
+              raise Exception("ERROR: RemoteAccessBroker.test(): DELETE /cache/somekey (with a valid key) returned <" + response.text + "> with a status code of " + str(response.status_code) + " (expecting 200)")
+
+            # Make sure it's gone
+            response = self.broker_client_request(broker_service_url, "/cache/somekey")
+            if response.status_code != 404:
+              raise Exception("ERROR: RemoteAccessBroker.test(): GET /cache/somekey (with a previously deleted key) returned <" + response.text + "> with a status code of " + str(response.status_code) + " (expecting 404)")
+
+            # Check for a non-existent file
+            response = self.broker_client_request(broker_service_url, "/file/somefile.txt")
+            if response.status_code != 404:
+              raise Exception("ERROR: RemoteAccessBroker.test(): GET /file/somefile.txt (with a non-existent file) returned <" + response.text + "> with a status code of " + str(response.status_code) + " (expecting 404)")
+ 
+            # Delete a non-existent file
+            response = self.broker_client_request(broker_service_url, "/file/somefile.txt", request_method = "DELETE")
+            if response.status_code != 404:
+              raise Exception("ERROR: RemoteAccessBroker.test(): DELETE /file/somefile.txt (with a non-existent file) returned a status code of " + str(response.status_code) + " (expecting 404)")
+
+            return
+
+            # Create a test file
             run_shell_command("echo xxxxxxxxxxxxxxxxxxx > delete-this-test-file.out")
+            
+            # Upload it
+            response = requests.put(broker_service_url + "/file/somefile.out", headers = { "secret" :  self.secret }, files = { "file" : open("delete-this-test-file.out","rb") })
+            if response.status_code != 200:
+              raise Exception("ERROR: RemoteAccessBroker.test(): PUT /file/somefile.out with a valid file returned <" + response.text + "> with a status code of " + str(response.status_code) + " (expecting 200)")
 
-	    self.logger.log(str("Testing PUT /file/somefile.out (expecting OK): \n\n         " +
-		      requests.put(broker_service_url + "/file/somefile.out", headers = { "secret" :  self.secret }, files = { "file" : open("delete-this-test-file.out","rb") }).text.replace("\n", "\n         ")
-	    ))
+            # Download it
+            response = requests.get(broker_service_url + "/file/somefile.out", headers = { "secret" :  self.secret })
+            with open('delete-this-test-file.copy.out', "w+") as output_file:
+              for block in response.iter_content(1024):
+                output_file.write(block)
 
-	    self.logger.log(str("Testing GET /file/somefile.txt (expecting 404): \n\n         " +
-	              requests.get(broker_service_url + "/file/somefile.txt", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-	    ))
+            # Compare to original
+            self.logger.log(str("File contents (expecting xxxxxxxxxxxxxxxxxxx): "))
+            run_shell_command("cat delete-this-test-file.copy.out")
+            run_shell_command("cksum delete-this-test-file.out delete-this-test-file.copy.out")
+
+            # Delete the local files
+            run_shell_command("rm delete-this-test-file.copy.out")
+            run_shell_command("rm delete-this-test-file.out")
+            self.logger.log(str("Testing GET /file/somefile.out (expecting OK): \n\n         " +
+                      response.text.replace("\n", "\n         ")
+            ))
+
+            # Delete the remote
+            response = self.broker_client_request(broker_service_url, "/file/somefile.out", request_method = "DELETE")
+            if response.status_code != 200:
+              raise Exception("ERROR: RemoteAccessBroker.test(): DELETE /file/somefile.out (with a valid file) returned <" + response.text + "> with a status code of " + str(response.status_code) + " (expecting 200)")
+
+            # Make sure it's gone
+            response = self.broker_client_request(broker_service_url, "/file/somefile.out")
+            if response.status_code != 404:
+              raise Exception("ERROR: RemoteAccessBroker.test(): GET /file/somefile.out (on a previously deleted file) returned <" + response.text + "> with a status code of " + str(response.status_code) + " (expecting 404)")
+
+            # Test command get/put
+            response = self.broker_client_request(broker_service_url, "/command/testnode01")
+            if response.status_code != 404:
+              raise Exception("ERROR: RemoteAccessBroker.test(): GET /command/testnode01 (on a never-accessed-node) returned  <" + response.text + "> with a status code of " + str(response.status_code) + " (expecting 404)")
+
+            # We expect a timestamp to exist for a node, even if it was accessed for the first time
+            response = self.broker_client_request(broker_service_url, "/data")
+            if response.status_code != 200:
+              raise Exception("ERROR: RemoteAccessBroker.test(): GET /data returned  <" + response.text + "> with a status code of " + str(response.status_code) + " (expecting 200)")
+            print(response.text)
 
 
-            #self.logger.log(str("Testing GET /file/somefile.out (expecting OK): \n\n         " +
-            #          file_download_response = requests.get(broker_service_url + "/file/somefile.out", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-            #))
-            #with open('delete-this-test-file.copy.out') as output_file:
-            #  for block in file_download_response.iter_content(1024):
-            #    output_file.write(block)
-            #self.logger.log(str("File contents (expecting xxxxxxxxxxxxxxxxxxx): \n\n         "))
-            #run_shell_command("cat delete-this-test-file.copy.out")
-            #run_shell_command("cksum delete-this-test-file.out delete-this-test-file.copy.out")
-            #run_shell_command("rm delete-this-test-file.copy.out")
-            #run_shell_command("rm delete-this-test-file.out")
-
-      self.logger.log(str("Testing DELETE /file/somefile.txt (expecting 404): \n\n         " +
-                      requests.delete(broker_service_url + "/file/somefile.txt", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-      ))
-
-
-	    self.logger.log(str("Testing DELETE /file/somefile.out (expecting OK): \n\n         " +
-	              requests.delete(broker_service_url + "/file/somefile.out", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-	    ))
-
-      self.logger.log(str("Testing GET /file/somefile.out (expecting 404): \n\n         " +
-                      requests.get(broker_service_url + "/file/somefile.out", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-      ))
-
-	    self.logger.log(str("Testing GET /command/testnode01 (expecting 404): \n\n         " +
-		      requests.get(broker_service_url + "/command/testnode01", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-	    ))
-
-	    self.logger.log(str("Testing GET /data (expecting an access timestamp under testnode01): \n\n         " +
-		      requests.get(broker_service_url + "/data", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-	    ))
-
+            return
 	    self.logger.log(str("Testing GET /response/testnode02 (expecting 404): \n\n         " +
 		      requests.get(broker_service_url + "/response/testnode02", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
 	    ))
@@ -469,6 +531,9 @@ class RemoteAccessBroker(object):
 	    self.logger.log(str("Testing GET /data (expecting an access timestamp under testnode01, testnode03): \n\n         " +
 		      requests.get(broker_service_url + "/data", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
 	    ))
+
+            self.logger.log("RemoteAccessBroker.test(): Completed broker integration tests")
+
   
   def get_node_data(self):
     self.node_data_lock.acquire()
@@ -481,7 +546,7 @@ class RemoteAccessBroker(object):
     self.logger.log("RemoteAccessBroker.get_log(): Not implemented")
 
   def file_put(self, filename, data):
-    self.logger.log("RemoteAccessBroker.file_put(): >")
+    self.logger.log("RemoteAccessBroker.file_put(): >", "DEBUG")
     try:
       self.logger.log("RemoteAccessBroker.file_put(): Writing to " + self.file_store + "/" + filename)
       with open(self.file_store + "/" + filename, 'w+') as output_file:
@@ -491,11 +556,17 @@ class RemoteAccessBroker(object):
       return 500, str(sys.exc_info()[0])
     
   def file_delete(self, filename):
+    self.logger.log("RemoteAccessBroker.file_delete(): >", "DEBUG")
     delete_command_output = run_shell_command("rm " + self.file_store + "/" + filename)
-    if len(delete_command_output) == 0:
+    self.logger.log("RemoteAccessBroker.file_delete(): output returned from the delete command: " + str(delete_command_output, "DEBUG") )
+    if delete_command_output is None or len(delete_command_output) == 0:
+      self.logger.log("RemoteAccessBroker.file_delete(): Returning 200", "DEBUG")
       return 200, "OK"
+    elif delete_command_output is not None and "No such file or directory" in delete_command_output:
+      return 404, str("File " + filename + " not found")
     else:
-      return 500, delete_command_output    
+      self.logger.log("RemoteAccessBroker.file_delete(): Returning 500", "DEBUG")
+      return 500, str(delete_command_output)
 
   def cache_get(self, key):
     if key in self.generic_cache:
@@ -725,7 +796,7 @@ class Cli(Cmd):
       )
     with open(path, 'wb') as imagefile:
       response.raw.decode_content = True
-      shutil.copyfileobj(response.raw, imagefile)
+      hutil.copyfileobj(response.raw, imagefile)
       self.logger.log("Image file saved to " + path)
 
   def do_t(self, args):
