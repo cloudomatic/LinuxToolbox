@@ -11,15 +11,18 @@ import sys,os
 #     Remote slave log retrieval
 
 if "MacBook" in str(os.environ):
-  sys.path.append("./lib/requests-2.22.0")
-  sys.path.append("./lib/urllib3-1.25.3/src")
+  sys.path.append("./lib/requests-2.5.2")
+  #sys.path.append("./lib/urllib3-1.25.3/src")
+  sys.path.append("./lib/urllib3-1.22")
   sys.path.append("./lib/chardet-3.0.4/")
   sys.path.append("./lib/certifi-2019.6.16/")
   sys.path.append("./lib/idna-2.8/")
-  sys.path.append("./lib/Flask-1.1.1/src/")
+  #sys.path.append("./lib/Flask-1.1.1/src/")
+  sys.path.append("./lib/Flask-0.7/")
   sys.path.append("./lib/Jinja2-2.10.1")
   sys.path.append("./lib/MarkupSafe-1.1.1/src")
-  sys.path.append("./lib/Werkzeug-0.15.5/src/")
+  #sys.path.append("./lib/Werkzeug-0.15.5/src/")
+  sys.path.append("./lib/Werkzeug-0.10.2")
   sys.path.append("./lib/itsdangerous-1.1.0/src")
   sys.path.append("./lib/Click-7.0/")
 
@@ -449,8 +452,6 @@ class RemoteAccessBroker(object):
             if response.status_code != 404:
               raise Exception("ERROR: RemoteAccessBroker.test(): DELETE /file/somefile.txt (with a non-existent file) returned a status code of " + str(response.status_code) + " (expecting 404)")
 
-            return
-
             # Create a test file
             run_shell_command("echo xxxxxxxxxxxxxxxxxxx > delete-this-test-file.out")
             
@@ -470,6 +471,7 @@ class RemoteAccessBroker(object):
             run_shell_command("cat delete-this-test-file.copy.out")
             run_shell_command("cksum delete-this-test-file.out delete-this-test-file.copy.out")
 
+            return
             # Delete the local files
             run_shell_command("rm delete-this-test-file.copy.out")
             run_shell_command("rm delete-this-test-file.out")
@@ -557,16 +559,22 @@ class RemoteAccessBroker(object):
     
   def file_delete(self, filename):
     self.logger.log("RemoteAccessBroker.file_delete(): >", "DEBUG")
-    delete_command_output = run_shell_command("rm " + self.file_store + "/" + filename)
-    self.logger.log("RemoteAccessBroker.file_delete(): output returned from the delete command: " + str(delete_command_output, "DEBUG") )
-    if delete_command_output is None or len(delete_command_output) == 0:
-      self.logger.log("RemoteAccessBroker.file_delete(): Returning 200", "DEBUG")
-      return 200, "OK"
-    elif delete_command_output is not None and "No such file or directory" in delete_command_output:
-      return 404, str("File " + filename + " not found")
+    self.logger.log("RemoteAccessBroker.file_delete():", "DEBUG")
+    if filename is not None:
+      delete_command_output = run_shell_command("rm " + self.file_store + "/" + filename)
+      self.logger.log("RemoteAccessBroker.file_delete():", "DEBUG")
+      self.logger.log("RemoteAccessBroker.file_delete(): output returned from the delete command: " + str(delete_command_output), "DEBUG" )
+      self.logger.log("RemoteAccessBroker.file_delete():", "DEBUG")
+      if delete_command_output is None or len(delete_command_output) == 0:
+        self.logger.log("RemoteAccessBroker.file_delete(): Returning 200", "DEBUG")
+        return 200, "OK"
+      elif delete_command_output is not None and "No such file or directory" in delete_command_output:
+        return 404, str("File " + filename + " not found")
+      else:
+        self.logger.log("RemoteAccessBroker.file_delete(): Returning 500", "DEBUG")
+        return 500, str(delete_command_output)
     else:
-      self.logger.log("RemoteAccessBroker.file_delete(): Returning 500", "DEBUG")
-      return 500, str(delete_command_output)
+      return 500, "Invalid filename <" + str(filename) + ">"
 
   def cache_get(self, key):
     if key in self.generic_cache:
@@ -1028,7 +1036,7 @@ if __name__ == '__main__':
 
   # Turn off untrusted cert warnings
   os.environ['PYTHONWARNINGS'] = "ignore:Unverified HTTPS request"
-  urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+  #urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
   prompt = Cli()
   prompt.prompt = '> '
