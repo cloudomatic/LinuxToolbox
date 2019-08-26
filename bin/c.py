@@ -12,16 +12,13 @@ import sys,os
 
 if "MacBook" in str(os.environ):
   sys.path.append("./lib/requests-2.5.2")
-  #sys.path.append("./lib/urllib3-1.25.3/src")
   sys.path.append("./lib/urllib3-1.22")
   sys.path.append("./lib/chardet-3.0.4/")
   sys.path.append("./lib/certifi-2019.6.16/")
   sys.path.append("./lib/idna-2.8/")
-  #sys.path.append("./lib/Flask-1.1.1/src/")
   sys.path.append("./lib/Flask-0.7/")
   sys.path.append("./lib/Jinja2-2.10.1")
   sys.path.append("./lib/MarkupSafe-1.1.1/src")
-  #sys.path.append("./lib/Werkzeug-0.15.5/src/")
   sys.path.append("./lib/Werkzeug-0.10.2")
   sys.path.append("./lib/itsdangerous-1.1.0/src")
   sys.path.append("./lib/Click-7.0/")
@@ -453,7 +450,8 @@ class RemoteAccessBroker(object):
               raise Exception("ERROR: RemoteAccessBroker.test(): DELETE /file/somefile.txt (with a non-existent file) returned a status code of " + str(response.status_code) + " (expecting 404)")
 
             # Create a test file
-            run_shell_command("echo xxxxxxxxxxxxxxxxxxx > delete-this-test-file.out")
+            random_string_to_test = "xxxxxxxxxxxxxxxxx"
+            run_shell_command("echo " + random_string_to_test + " > delete-this-test-file.out")
             
             # Upload it
             response = requests.put(broker_service_url + "/file/somefile.out", headers = { "secret" :  self.secret }, files = { "file" : open("delete-this-test-file.out","rb") })
@@ -467,18 +465,15 @@ class RemoteAccessBroker(object):
                 output_file.write(block)
 
             # Compare to original
-            self.logger.log(str("File contents (expecting xxxxxxxxxxxxxxxxxxx): "))
-            run_shell_command("cat delete-this-test-file.copy.out")
-            run_shell_command("cksum delete-this-test-file.out delete-this-test-file.copy.out")
+            retrieved_file_contents = run_shell_command("cat delete-this-test-file.copy.out")
+            if str(retrieved_file_contents).strip() != random_string_to_test:
+              raise Exception("ERROR: RemoteAccessBroker.test(): A test of file upload/download did not return the same file (" + str(retrieved_file_contents).strip() + " != " + random_string_to_test + ")")
+            #self.logger.log(str(run_shell_command("cksum delete-this-test-file.out delete-this-test-file.copy.out")))
 
-            return
             # Delete the local files
             run_shell_command("rm delete-this-test-file.copy.out")
             run_shell_command("rm delete-this-test-file.out")
-            self.logger.log(str("Testing GET /file/somefile.out (expecting OK): \n\n         " +
-                      response.text.replace("\n", "\n         ")
-            ))
-
+         
             # Delete the remote
             response = self.broker_client_request(broker_service_url, "/file/somefile.out", request_method = "DELETE")
             if response.status_code != 200:
@@ -498,10 +493,11 @@ class RemoteAccessBroker(object):
             response = self.broker_client_request(broker_service_url, "/data")
             if response.status_code != 200:
               raise Exception("ERROR: RemoteAccessBroker.test(): GET /data returned  <" + response.text + "> with a status code of " + str(response.status_code) + " (expecting 200)")
-            print(response.text)
+            if "access_time" not in response.text:
+              raise Exception("ERROR: RemoteAccessBroker.test(): GET /data returned  <" + response.text + "> (expecting an access_time entry) with a status code of " + str(response.status_code) + "")
 
-
-            return
+            return 
+            # HERE
 	    self.logger.log(str("Testing GET /response/testnode02 (expecting 404): \n\n         " +
 		      requests.get(broker_service_url + "/response/testnode02", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
 	    ))
