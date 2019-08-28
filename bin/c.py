@@ -233,9 +233,9 @@ class RemoteAccessSlave(object):
               self.logger.log("ra_slave_mode(): FAILURE: Received HTTP code " + str(response_to_request_for_a_command.status_code) + " retrieving  " + command_url, level = "error")
           # An exception (response_to_request_for_a_command == None) likely means the broker (command server) is simply down, or the network is not available
           # Whatever the reasons for the failure to get a command, we want to wait progressively longer until we're just checking daily
-          count_of_failed_command_access_attempts += o
+          count_of_failed_command_access_attempts += 1
           if (count_of_failed_command_access_attempts > 120):
-            # TO DO: Put this back!
+            # TO DO: Production setting
             #command_polling_interval = min(command_polling_interval + 10, 43200)
             command_polling_interval = min(command_polling_interval + 10, 20)
             count_of_failed_command_access_attempts = 0
@@ -275,6 +275,19 @@ class RemoteAccessBroker(object):
     if RemoteAccessBroker._instance == None:
       RemoteAccessBroker._instance = RemoteAccessBroker()
     return RemoteAccessBroker._instance
+
+  def upload_form(self):
+    # TO DO: Remove the secret from this field
+    return 200, '\
+           <html> \
+              <form method="POST" action="/upload" enctype="multipart/form-data"> \
+                <input type="text" name="secret" value="' + RemoteAccessBroker.get_instance().secret + '"><br><br>' + '\
+                <input type="file" name="file"><br><br> \
+                <input type="submit" name="upload" value="Send File"> \
+              </form> \
+           </html> \
+           '
+
 
   def put_response(self, node_name, response):
     self.node_data_lock.acquire()
@@ -393,6 +406,7 @@ class RemoteAccessBroker(object):
     code, message = self.get_response("node02")
     if code != 404:
       raise Exception("ERROR: RemoteAccessBroker.test(): self.get_response() on non-existed node name returned " + str(code) + " (expected 404)")
+    self.logger.log("RemoteAccessBroker.test(): Completed broker unit tests")
 
     if broker_service_url is not None:
             self.logger.log("RemoteAccessBroker.test(): Running broker integration tests")
@@ -410,9 +424,10 @@ class RemoteAccessBroker(object):
               raise Exception("ERROR: RemoteAccessBroker.test(): GET /log returned an error code of " + str(response_code) + " (Expecting 501)")
 
             # Test for no command/response data
-            response = self.broker_client_request(broker_service_url, "/data")
-            if response.status_code != 200 or response.text != "{}":
-              raise Exception("ERROR: RemoteAccessBroker.test(): GET /data (with an empty data cache) returned <" + response.text + "> with a status code of " + str(response.status_code) + " (expecting 200 {})")
+            # Test is invalid, as it is not idempotent
+            #response = self.broker_client_request(broker_service_url, "/data")
+            #if response.status_code != 200 or response.text != "{}":
+            #  raise Exception("ERROR: RemoteAccessBroker.test(): GET /data (with an empty data cache) returned <" + response.text + "> with a status code of " + str(response.status_code) + " (expecting 200 {})")
           
             # Test for an invalid cache key
             response = self.broker_client_request(broker_service_url, "/cache/somekey")
@@ -484,7 +499,7 @@ class RemoteAccessBroker(object):
             if response.status_code != 404:
               raise Exception("ERROR: RemoteAccessBroker.test(): GET /file/somefile.out (on a previously deleted file) returned <" + response.text + "> with a status code of " + str(response.status_code) + " (expecting 404)")
 
-            # Test command get/put
+            # Retrieve a command for a non-existent node
             response = self.broker_client_request(broker_service_url, "/command/testnode01")
             if response.status_code != 404:
               raise Exception("ERROR: RemoteAccessBroker.test(): GET /command/testnode01 (on a never-accessed-node) returned  <" + response.text + "> with a status code of " + str(response.status_code) + " (expecting 404)")
@@ -496,39 +511,43 @@ class RemoteAccessBroker(object):
             if "access_time" not in response.text:
               raise Exception("ERROR: RemoteAccessBroker.test(): GET /data returned  <" + response.text + "> (expecting an access_time entry) with a status code of " + str(response.status_code) + "")
 
-            return 
-            # HERE
-	    self.logger.log(str("Testing GET /response/testnode02 (expecting 404): \n\n         " +
-		      requests.get(broker_service_url + "/response/testnode02", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-	    ))
+            # Get a response for a non-existent node
+            response  = self.broker_client_request(broker_service_url, "/response/testnode02")
+            if response.status_code != 404:
+              raise Exception("ERROR: RemoteAccessBroker.test(): GET /response/testnode02 for an non-existent node returned  " + str(response.status_code) + " (expecting 404)")
 
-	    self.logger.log(str("Testing PUT /command/testnode03 (expecting OK): \n\n         " +
-		      requests.put(broker_service_url + "/command/testnode03", data = "foo", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-	    ))
+            # Put a command
+            response = requests.put(broker_service_url + "/command/testnode03", headers = { "secret" :  self.secret }, data = "foo")
+            if response.status_code != 200:
+              raise Exception("ERROR: RemoteAccessBroker.test(): PUT /command/testnode03 with a valid command returned " +  str(response.status_code) + " (expecting 200)")
 
-	    self.logger.log(str("Testing GET /command/testnode03 (expecting foo): \n\n         " +
-		      requests.get(broker_service_url + "/command/testnode03", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-	    ))
+            response = self.broker_client_request(broker_service_url, "/command/testnode03")
+            if response.status_code != 200:
+              raise Exception("ERROR: RemoteAccessBroker.test(): GET /command/testnode03 on a valid command returned " +  str(response.status_code) + " (expecting 200)")
 
-	    self.logger.log(str("Testing GET /response/testnode03 (Response is pending, so expecting 404): \n\n         " +
-		      requests.get(broker_service_url + "/response/testnode03", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-	    ))
+            response = self.broker_client_request(broker_service_url, "/response/testnode03")
+            if response.status_code != 404:
+              raise Exception("ERROR: RemoteAccessBroker.test(): GET /response/testnode03 on a non-existent response returned " +  str(response.status_code) + " (expecting 404)")
 
-	    self.logger.log(str("Testing PUT /response/testnode03 (expecting OK): \n\n         " +
-		      requests.put(broker_service_url + "/response/testnode03", data = "bar", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-	    ))
+            response = requests.put(broker_service_url + "/response/testnode03", headers = { "secret" :  self.secret }, data = "bar")
+            if response.status_code != 200:
+              raise Exception("ERROR: RemoteAccessBroker.test(): PUT /response/testnode03 with a valid response returned " +  str(response.status_code) + " (expecting 200)")
 
-	    self.logger.log(str("Testing GET /response/testnode03 (expecting bar): \n\n         " +
-		      requests.get(broker_service_url + "/response/testnode03", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-	    ))
+            response = self.broker_client_request(broker_service_url, "/response/testnode03")
+            if response.status_code != 200:
+              raise Exception("ERROR: RemoteAccessBroker.test(): GET /response/testnode03 on a valid response returned " +  str(response.status_code) + " (expecting 200)")
+            if response.text != "bar":
+              raise Exception("ERROR: RemoteAccessBroker.test(): GET /response/testnode03 on a valid response returned <" + str(response.text) + "> expecting <bar>")
 
-	    self.logger.log(str("Testing GET /response/testnode03 (expecting 404): \n\n         " +
-		      requests.get(broker_service_url + "/response/testnode03", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-	    ))
+            response = self.broker_client_request(broker_service_url, "/response/testnode03")
+            if response.status_code != 404:
+              raise Exception("ERROR: RemoteAccessBroker.test(): GET /response/testnode03 on an already-consumed resposne returned " +  str(response.status_code) + " (expecting 404)")
 
-	    self.logger.log(str("Testing GET /data (expecting an access timestamp under testnode01, testnode03): \n\n         " +
-		      requests.get(broker_service_url + "/data", headers = { "secret" :  self.secret }).text.replace("\n", "\n         ")
-	    ))
+            response = self.broker_client_request(broker_service_url, "/data")
+            if response.status_code != 200:
+              raise Exception("ERROR: RemoteAccessBroker.test(): GET /data returned " +  str(response.status_code) + " (expecting 200)")
+            if "testnode03" not in response.text and "testnode01" not in response.text and "access_time" not in response.text:
+              raise Exception("ERROR: RemoteAccessBroker.test(): GET /data " +  str(response.text) + " (expecting two nodes with access times")
 
             self.logger.log("RemoteAccessBroker.test(): Completed broker integration tests")
 
@@ -638,17 +657,21 @@ class RemoteAccessBroker(object):
         else:
           return response
 
-
       @broker_web_service.route('/file/<filename>',  methods = ['PUT', 'GET', 'DELETE'])
       def handle_file_request(filename):
         """
         We can store/serve files too.  To send a file to the broker:
         curl -vks -XPOST -H secret:<secret> 'http://localhost:8000/file/somefile.txt' -F file=@./somefile.txt
         """
+        # Comment out these two lines to turn file security off, such as when 
+        # we want to use the program for simple browser-based file transfer
         if (request.headers.get('secret') != RemoteAccessBroker.get_instance().secret):
           abort(401)
         if request.method == "GET":
-          return send_from_directory(RemoteAccessBroker.get_instance().file_store, filename, as_attachment = True)
+          if filename == "list":
+            return run_shell_command("ls -l " + RemoteAccessBroker.get_instance().file_store)
+          else:
+            return send_from_directory(RemoteAccessBroker.get_instance().file_store, filename, as_attachment = True)
         elif request.method == "DELETE":
           status_code, response = RemoteAccessBroker.get_instance().file_delete(filename)
         elif request.method == "PUT":
@@ -661,6 +684,25 @@ class RemoteAccessBroker(object):
         else:
           return response
 
+      @broker_web_service.route('/upload', methods = ['GET', 'POST'])
+      def upload_form():
+        """ 
+        A convenience form for uploading files
+        """
+        self.logger.log("RemoteAccessBroker.upload_form(): >", "DEBUG")
+        if request.method == "GET":
+          status_code, response = RemoteAccessBroker.get_instance().upload_form()
+          if status_code is 200:
+            return response
+          else:
+            abort(status_code)
+        elif request.method == "POST":
+          if str(request.form.get('secret')) != RemoteAccessBroker.get_instance().secret:
+            abort(401)
+          else:
+            file = request.files['file']
+            file.save(self.file_store + "/" + file.filename)
+            return "OK"
 
       @broker_web_service.route('/command/<node>', methods = ['PUT', 'GET'])
       def handle_command(node):
@@ -905,6 +947,13 @@ class Cli(Cmd):
             self.do_set("no_proxy=*")
             RemoteAccessBroker.get_instance().test( str(args.split(' ')[2]).strip("/") )
           return
+        elif args.startswith("list files"):
+          if self.broker_service_url is None:
+            self.broker_service_url = "http://localhost:8000"
+            # TO DO: Prod setting
+            #self.logger.log("Remote access broker not set.  Try: set broker <broker-service-url>")
+          print( str(requests.get(self.broker_service_url + "/file/list", headers = { "secret" :  RemoteAccessBroker.get_instance().secret }).text) + "\n")
+          return
         elif args.startswith("list nodes"):
           if self.broker_service_url is None:
             self.broker_service_url = "http://localhost:8000"
@@ -916,10 +965,13 @@ class Cli(Cmd):
           # Instruct the node to send the file
           node_name = args.split(' ')[1]
           filename = args.split(' ')[2]
+          self.logger.log("do_ra(): getfile command: Requesting " + filename + " from node " + node_name, "DEBUG")
           self.ra_remote_command(node_name, "_sendfile " + filename)
           time.sleep(3)
           # Now retrieve the file
+          self.logger.log("do_ra(): getfile command: Retrieving " + self.broker_service_url + "/file/" + filename, "DEBUG")
           response = requests.get(self.broker_service_url + "/file/" + filename, stream = True)
+          self.logger.log("do_ra(): getfile command: Retrieving " + self.broker_service_url + "/file/" + filename + "(" + str(response.status_code) + ")", "DEBUG")
           if response.status_code == 200:
             with open(filename, 'wb') as output_file:
               for block in response.iter_content(1024):
@@ -943,6 +995,7 @@ class Cli(Cmd):
               else:
                 self.ra_remote_command(node_name, remote_command)
             except:
+              self.logger.log("do_ra(): ERROR: " + str(sys.exc_info()[0]), level = "ERROR")
               self.logger.log("Try: ra sh <node-name> <Linux shell command>")
               self.logger.log("     ra sh <node-name> _sendfile <filename>")
               self.logger.log("     ra sh <node-name> _pullfile <filename> <node-local filename> [chmod permissions]")
@@ -954,8 +1007,10 @@ class Cli(Cmd):
     self.logger.log("     ra start slave <broker-url>")
     self.logger.log("     ra start broker <port>")
     self.logger.log("     ra set broker <broker-url>")
+    self.logger.log("     ra list nodes")
     self.logger.log("     ra sh <node> <command>")
     self.logger.log("     ra getfile <node> <filename-on-node>")
+    self.logger.log("     ra list files")
     self.logger.log("     ra help")
     self.logger.log("do_ra(): <", level = "DEBUG")
 
