@@ -39,7 +39,11 @@ def get_local_node_name():
     if os.environ.get("HOSTNAME") is not None:
       return os.environ.get("HOSTNAME")
     else:
-      return "UNKNOWN_NODE"
+      hostname=run_shell_command("hostname")
+      if hostname is not None and len(str(hostname)) > 0:
+        return hostname.strip()
+      else:
+        return "UNKNOWN_NODE"
 
 
 def run_shell_command(command):
@@ -152,10 +156,14 @@ class RemoteAccessSlave(object):
     file_put_url = self.broker_service_url + "/file/" + str(os.path.basename(os.path.normpath(filename)))
     self.logger.log("RemoteAccessSlave.sendfile(): url: file_put_url", level = "DEBUG")
     self.logger.log("RemoteAccessSlave.sendfile(): filename: " + os.path.normpath(filename))
-    put_request_response = requests.put(file_put_url, headers = { "secret" :  self.secret }, files = { "file" : open(os.path.normpath(filename), "rb") })
-    self.logger.log("RemoteAccessSlave.sendfile(): <: " + put_request_response.text, level = "DEBUG")
-    requests.put(self.broker_service_url + "/response/" + self.get_local_node_name(), headers = { "secret" :  self.secret }, data="sendfile() completed")
-    return put_request_response.text
+    # TO DO: MAke sure it's a normal file
+    if not os.path.isfile(os.path.normpath(filename):
+      self.logger.log("RemoteAccessSlave.sendfile(): WARNING: Not a normal file (" + os.path.normpath(filename) + ")")
+    else:
+      put_request_response = requests.put(file_put_url, headers = { "secret" :  self.secret }, files = { "file" : open(os.path.normpath(filename), "rb") })
+      self.logger.log("RemoteAccessSlave.sendfile(): <: " + put_request_response.text, level = "DEBUG")
+      requests.put(self.broker_service_url + "/response/" + self.get_local_node_name(), headers = { "secret" :  self.secret }, data="sendfile() completed")
+      return put_request_response.text
 
   def pullfile(self, broker_filename, local_filename, permissions):
     """
@@ -196,7 +204,7 @@ class RemoteAccessSlave(object):
       """
       if broker_service_url == None or len(broker_service_url) < 5 or "http" not in broker_service_url:
         # TO DO: This should be an exception
-        self.logger.log("Remote access slave mode requires a service URL (usage: ra <broker-service-url>)")
+        raise Exception("RemoteAccessSlave.start_slave(): broker_service_url is not set")
         return
       else:
         self.broker_service_url = broker_service_url.strip("/")
@@ -218,7 +226,7 @@ class RemoteAccessSlave(object):
         except:
           self.logger.log("RemoteAccessSlave.start_slave(): A GET on " + command_url + " returned an exception " + str(sys.exc_info()[0]), level = "error")
         if response_to_request_for_a_command is not None and response_to_request_for_a_command.status_code > 199 and response_to_request_for_a_command.status_code < 400 :
-          self.logger.log("ra_slave_mode(): Received response_to_request_for_a_command: " + str(response_to_request_for_a_command.status_code), level = "debug")
+          self.logger.log("ra_slave_mode(): Received response_to_request_for_a_command: (" + str(response_to_request_for_a_command.status_code) + ") <" + response_to_request_for_a_command.text + ">", level = "debug")
           self.process_command(response_to_request_for_a_command.text)
 
           # We have a "session" now with the broker, so let's reduce our polling interval to a more normal terminal-session-like pace
@@ -906,8 +914,9 @@ class Cli(Cmd):
           self.logger.log("do_ra(): args=" + args)
         if args.startswith("start slave"):
           ra_service_url = str(args.split(' ')[2])
-          if args == None or len(args) < 5 or "http" not in args:
-            self.logger.log("RA mode requires a service URL (usage: ra <service-url>)")
+          if ra_service_url == None or len(ra_service_url) < 5 or "http" not in ra_service_url:
+            self.logger.log("RA slave mode requires a broker service URL (usage: ra start slave <service-url>)", "ERROR")
+            return
           else:
             slave = RemoteAccessSlave()
             slave.logger = self.logger
