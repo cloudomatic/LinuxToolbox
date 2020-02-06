@@ -106,6 +106,10 @@ cheat_sheet() {
             \\n          -----------------------------"'
   alias bc='bs'
 }
+# alias cheats='echo "--------------------------------" && \
+#	      echo -e "Put permanent kernel boot options in /home/knoppix/Desktop/KNOPPIX/boot/isolinux/isolinux.cfg" && \
+#	      echo "--------------------------------" \
+#	     '
 
 misc_aliases() {
   alias aws='~/.local/bin/aws'
